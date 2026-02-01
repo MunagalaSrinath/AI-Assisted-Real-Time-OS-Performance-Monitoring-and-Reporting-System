@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ExplainMySystem – Live OS Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+
+  <body>
+    <h2>🖥️ ExplainMySystem – Live OS Dashboard</h2>
+
+    <!-- System Metrics -->
+    <!-- <div class="metrics">
+      <div id="cpu" class="metric-card">CPU: --</div>
+      <div id="memory" class="metric-card">Memory: --</div>
+      <div id="disk" class="metric-card">Disk: --</div>
+    </div> -->
+    <!-- System Metrics -->
+    <div class="metrics">
+      <div id="cpu" class="metric-card normal">CPU: --</div>
+      <div id="memory" class="metric-card normal">Memory: --</div>
+      <div id="disk" class="metric-card normal">Disk: --</div>
+    </div>
+
+    <!-- Graph + Processes -->
+    <div class="split-container">
+      <div class="left-panel">
+        <h3>📊 CPU Usage (Live)</h3>
+        <canvas id="cpuChart" height="80"></canvas>
+      </div>
+
+      <div class="right-panel">
+        <h3>🔍 Top Processes</h3>
+        <ul id="processes" class="process-box"></ul>
+      </div>
+    </div>
+
+    <!-- AI Section -->
+    <h3>🧠 System Health Analysis</h3>
+
+    <button onclick="runAIAnalysis()" class="ai-button">
+      🔍 Analyze with AI
+    </button>
+
+    <button onclick="exportReport()" class="export-button">
+      📄 Export System Report
+    </button>
+
+    <div id="ai" class="ai-container">
+      <div class="ai-card">
+        Click <strong>Analyze with AI</strong> to generate system explanation.
+      </div>
+    </div>
+
+    <script>
+      /* ---------------- CPU GRAPH ---------------- */
+      const cpuData = [];
+      const cpuLabels = [];
+      const ctx = document.getElementById("cpuChart").getContext("2d");
+
+      const cpuChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: cpuLabels,
+          datasets: [
+            {
+              label: "CPU Usage (%)",
+              data: cpuData,
+              borderColor: "#2563eb",
+              backgroundColor: "rgba(37,99,235,0.1)",
+              fill: true,
+              tension: 0.4,
+              pointRadius: 2,
+            },
+          ],
+        },
+        options: {
+          animation: false,
+          scales: { y: { min: 0, max: 100 } },
+        },
+      });
+
+      function setSeverity(element, value, warning, critical) {
+        element.classList.remove("normal", "warning", "critical");
+
+        if (value >= critical) {
+          element.classList.add("critical");
+        } else if (value >= warning) {
+          element.classList.add("warning");
+        } else {
+          element.classList.add("normal");
+        }
+      }
+
+      /* ---------------- LIVE DATA ---------------- */
+      async function fetchLiveData() {
+        try {
+          const res = await fetch("/api/live");
+          const data = await res.json();
+
+          if (!data.cpu_now) return;
+
+          const cpuEl = document.getElementById("cpu");
+          cpuEl.innerText = `CPU Usage: ${data.cpu_now}% (Δ ${data.cpu_change}%)`;
+          setSeverity(cpuEl, data.cpu_now, 50, 80);
+
+          const memEl = document.getElementById("memory");
+          memEl.innerText = `Memory Usage: ${data.memory_now}% (Δ ${data.memory_change}%)`;
+          setSeverity(memEl, data.memory_now, 60, 85);
+
+          const diskEl = document.getElementById("disk");
+          diskEl.innerText = `Disk Usage: ${data.disk_now}%`;
+          setSeverity(diskEl, data.disk_now, 70, 85);
+
+          const timeLabel = new Date().toLocaleTimeString();
+          cpuLabels.push(timeLabel);
+          cpuData.push(data.cpu_now);
+          if (cpuLabels.length > 30) {
+            cpuLabels.shift();
+            cpuData.shift();
+          }
+          cpuChart.update();
+
+          const list = document.getElementById("processes");
+          list.innerHTML = "";
+          data.top_processes.forEach((p) => {
+            const li = document.createElement("li");
+            li.innerText = `${p.name} — CPU ${p.cpu_percent}% | RAM ${p.memory_percent}%`;
+            list.appendChild(li);
+          });
+        } catch {}
+      }
+
+      /* ---------------- MANUAL AI ---------------- */
+      // async function runAIAnalysis() {
+      //   const aiBox = document.getElementById("ai");
+      //   aiBox.innerHTML = "<div class='ai-card'>Analyzing system…</div>";
+
+      //   const res = await fetch("/api/analyze", { method: "POST" });
+      //   const data = await res.json();
+
+      //   aiBox.innerHTML = `
+      //     <div class='ai-card'>
+      //         <strong>AI Analysis (Rate Limited)</strong><br><br>
+      //         ${data.ai_explanation}
+      //     </div>
+      //   `;
+      // }
+      async function runAIAnalysis() {
+        const aiBox = document.getElementById("ai");
+        aiBox.innerHTML = "<div class='ai-card'>Analyzing system…</div>";
+
+        const res = await fetch("/api/analyze", { method: "POST" });
+        const data = await res.json();
+
+        // ✅ IMPORTANT: Use the formatter, NOT innerHTML
+        renderAIExplanation(data.ai_explanation);
+      }
+
+      function renderAIExplanation(text) {
+        const container = document.getElementById("ai");
+        container.innerHTML = "";
+
+        // Split by section headers
+        const sections = text.split("###").filter((s) => s.trim());
+
+        sections.forEach((section) => {
+          const lines = section
+            .trim()
+            .split("\n")
+            .filter((l) => l.trim());
+
+          // Section title
+          const title = lines[0];
+          if (!title.match(/\d+\./)) return;
+
+          const body = lines.slice(1);
+
+          const bulletItems = [];
+
+          body.forEach((line) => {
+            // Main bullet
+            if (line.trim().startsWith("*")) {
+              bulletItems.push(
+                line
+                  .replace(/^\*\s*\*\*/, "<strong>")
+                  .replace("**:", ":</strong>")
+                  .replace(/\*\*/g, "</strong>"),
+              );
+            }
+
+            // Sub-bullet (indented with *)
+            if (
+              line.trim().startsWith("*   `") ||
+              line.trim().startsWith("*   **")
+            ) {
+              bulletItems.push(
+                "&nbsp;&nbsp;&nbsp;• " +
+                  line
+                    .replace(/^\*\s+/, "")
+                    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>"),
+              );
+            }
+          });
+
+          const card = document.createElement("div");
+          card.className = "ai-card";
+
+          card.innerHTML = `
+      <h4>${title}</h4>
+      <ul class="ai-list">
+        ${bulletItems.map((item) => `<li>${item}</li>`).join("")}
+      </ul>
+    `;
+
+          container.appendChild(card);
+        });
+      }
+
+      function exportReport() {
+        window.location.href = "/api/export";
+      }
+
+      setInterval(fetchLiveData, 5000);
+      fetchLiveData();
+    </script>
+  </body>
+</html>
